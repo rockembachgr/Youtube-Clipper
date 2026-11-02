@@ -1,29 +1,3 @@
-"""
-main.py
-Pipeline completo: YouTube -> transcrição -> análise estratégica de virais -> cortes.
-
-Uso:
-    python main.py "https://www.youtube.com/watch?v=XXXXXXXX"
-
-Opções:
-    --modelo-whisper small|base|medium|large-v3   (padrão: small)
-    --qtd-cortes N                                (padrão: 12)
-    --horizontal                                  (gera cortes no formato original, sem verticalizar)
-    --idioma pt                                   (força idioma da transcrição)
-    --analise local|api                           (padrão: local, gratuito)
-    --layout preenchido|blur                      (padrão: preenchido)
-    --sem-legenda                                 (desativa a legenda dinâmica queimada no vídeo)
-    --paralelo N                                  (quantos clipes cortar ao mesmo tempo; padrão: automático)
-    --rapido                                      (atalho: modelo 'base' + preset de corte mais veloz,
-                                                    recomendado para vídeos longos tipo podcasts de 1h+)
-    --lote                                        (tenta o pipeline em lote do faster-whisper, mais
-                                                    rápido em teoria mas experimental — desativado por
-                                                    padrão porque pode travar/crashar em alguns Windows)
-    --sem-marca-dagua                              (desativa a logo do canal no canto superior direito)
-    --handle @usuario                              (texto do @ mostrado no canto inferior esquerdo;
-                                                    padrão: @cortes.do.rock)
-    --sem-handle                                   (desativa o @ da conta no vídeo)
-"""
 import argparse
 import json
 import os
