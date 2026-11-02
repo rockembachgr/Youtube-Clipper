@@ -7,7 +7,8 @@ from transcriber import transcrever, formatar_transcricao_para_analise
 from analyzer_free import analisar_transcricao_local
 from cutter import cortar_video
 from postagem import gerar_legenda_post
-from utils import slugificar
+from utils import slugificar, refinar_cortes
+from captions import ESTILOS, ESTILO_PADRAO
 
 
 def main():
@@ -26,6 +27,16 @@ def main():
         "--layout", choices=["preenchido", "blur"], default="preenchido",
         help="'preenchido' = zoom/crop preenchendo a tela toda (padrão, mais 'cheio'). "
              "'blur' = vídeo original inteiro, com fundo desfocado nas bordas.",
+    )
+    parser.add_argument(
+        "--estilo", choices=list(ESTILOS.keys()), default=ESTILO_PADRAO,
+        help="Estilo da legenda e da manchete de abertura: 'impacto' (Anton, grande, padrão), "
+             "'moderno' (Poppins Black) ou 'comic' (Bangers).",
+    )
+    parser.add_argument(
+        "--nicho", default="geral",
+        help="Ajuda a escolher melhor os trechos. Na análise local: geral, esporte ou musica. "
+             "Na análise via API: qualquer descrição livre (ex: 'podcast de rock', 'futebol').",
     )
     parser.add_argument(
         "--sem-legenda", action="store_true",
@@ -95,9 +106,18 @@ def main():
     # 3. Análise estratégica: local (gratuita) ou via API do Claude
     if args.analise == "api":
         from analyzer import analisar_transcricao  # import tardio: só exige a lib/chave se for usada
-        cortes = analisar_transcricao(transcricao_txt, quantidade_cortes=args.qtd_cortes)
+        cortes = analisar_transcricao(
+            transcricao_txt, quantidade_cortes=args.qtd_cortes,
+            nicho="" if args.nicho == "geral" else args.nicho,
+        )
     else:
-        cortes = analisar_transcricao_local(segmentos, quantidade_cortes=args.qtd_cortes)
+        cortes = analisar_transcricao_local(
+            segmentos, quantidade_cortes=args.qtd_cortes,
+            nicho=args.nicho if args.nicho in ("geral", "esporte", "musica") else "geral",
+        )
+
+    # Ajusta início/fim para as fronteiras reais das frases (não corta no meio da fala)
+    cortes = refinar_cortes(cortes, segmentos)
 
     if not cortes:
         print("[AVISO] Nenhum corte válido foi identificado. Verifique 'transcricao.txt'.")
@@ -115,6 +135,7 @@ def main():
         preset=preset_corte,
         marca_dagua=not args.sem_marca_dagua,
         handle=None if args.sem_handle else args.handle,
+        estilo=args.estilo,
     )
 
     # 5. Relatório final
@@ -128,6 +149,8 @@ def main():
                 "inicio": g["inicio_seg"],
                 "fim": g["fim_seg"],
                 "duracao_seg": round(g["fim_seg"] - g["inicio_seg"], 1),
+                "manchete": g.get("manchete", ""),
+                "pontuacao": g.get("pontuacao", 0),
                 "gancho": g["gancho"],
                 "motivo": g["motivo"],
                 "plataformas": g["plataformas"],

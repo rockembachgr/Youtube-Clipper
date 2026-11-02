@@ -20,7 +20,8 @@ import subprocess
 import tempfile
 import concurrent.futures
 
-from captions import gerar_ass_para_corte, escapar_caminho_ffmpeg, RODAPE_DURACAO
+from captions import (gerar_ass_para_corte, escapar_caminho_ffmpeg, RODAPE_DURACAO,
+                      PASTA_FONTES_PADRAO, ESTILO_PADRAO)
 from utils import slugificar
 
 # --- Marca d'água (logo do canal) --------------------------------------------
@@ -96,7 +97,8 @@ def _filtro_layout(formato_vertical: bool, layout: str, info_blur: tuple = None)
 def _cortar_um_clipe(indice: int, total: int, corte: dict, caminho_video: str,
                       pasta_saida: str, pasta_temp: str, formato_vertical: bool,
                       layout: str, palavras: list, legendas: bool, preset: str, crf: int,
-                      marca_dagua: bool, caminho_logo: str, handle: str, info_blur: tuple):
+                      marca_dagua: bool, caminho_logo: str, handle: str, info_blur: tuple,
+                      estilo: str = ESTILO_PADRAO):
     """Corta um único clipe. Roda em paralelo (uma chamada por clipe)."""
     duracao = corte["fim_seg"] - corte["inicio_seg"]
     nome_base = f"{indice:02d}_{slugificar(corte['titulo'])}"
@@ -125,8 +127,9 @@ def _cortar_um_clipe(indice: int, total: int, corte: dict, caminho_video: str,
     # No layout "blur", cola a faixa logo abaixo do vídeo (não no fundo do
     # quadro); no "preenchido", o vídeo já ocupa o quadro todo, então tanto
     # faz — fica na base mesmo.
+    manchete = corte.get("manchete") or corte.get("gancho")
     margem_rodape_extra = 0
-    if legendas and corte.get("gancho"):
+    if legendas and manchete:
         duracao_faixa = min(RODAPE_DURACAO, duracao)
         if formato_vertical and layout == "blur" and info_blur:
             _, _, y_base_video = info_blur
@@ -144,20 +147,26 @@ def _cortar_um_clipe(indice: int, total: int, corte: dict, caminho_video: str,
         rotulo_video_final = "vfaixa"
 
     caminho_ass = None
-    if legendas and (palavras or corte.get("gancho") or handle):
+    if legendas and (palavras or manchete or handle):
         caminho_ass_destino = os.path.join(pasta_temp, f"{nome_base}.ass")
         caminho_ass = gerar_ass_para_corte(
             palavras or [], corte["inicio_seg"], corte["fim_seg"], caminho_ass_destino,
             largura=largura_saida,
             altura=1920 if formato_vertical else 1080,
-            texto_headline=corte.get("gancho"),
+            texto_headline=manchete,
             texto_handle=handle,
             margem_rodape_extra=margem_rodape_extra,
+            estilo=estilo,
+            altura_faixa=ALTURA_FAIXA_RODAPE,
         )
 
     if caminho_ass:
         caminho_escapado = escapar_caminho_ffmpeg(caminho_ass)
-        filtro += f";[{rotulo_video_final}]ass='{caminho_escapado}'[vlegendado]"
+        # fontsdir: usa as fontes de assets/fonts (não depende de instalar no Windows)
+        fonte_dir = ""
+        if os.path.isdir(PASTA_FONTES_PADRAO):
+            fonte_dir = f":fontsdir='{escapar_caminho_ffmpeg(PASTA_FONTES_PADRAO)}'"
+        filtro += f";[{rotulo_video_final}]ass='{caminho_escapado}'{fonte_dir}[vlegendado]"
         rotulo_video_final = "vlegendado"
 
     cmd = [
@@ -169,7 +178,10 @@ def _cortar_um_clipe(indice: int, total: int, corte: dict, caminho_video: str,
         "-map", f"[{rotulo_video_final}]", "-map", "0:a?",
         "-t", str(duracao),
         "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
+        "-pix_fmt", "yuv420p",           # compatibilidade com TikTok/Instagram/celulares
+        "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",  # volume padronizado (cortes com áudio baixo perdem retenção)
         "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
         caminho_saida,
     ]
 
@@ -193,7 +205,7 @@ def cortar_video(caminho_video: str, cortes: list, pasta_saida: str = "clipes",
                   palavras: list = None, legendas: bool = True,
                   paralelo: int = None, preset: str = "veryfast", crf: int = 21,
                   marca_dagua: bool = True, caminho_logo: str = CAMINHO_LOGO_PADRAO,
-                  handle: str = HANDLE_PADRAO):
+                  handle: str = HANDLE_PADRAO, estilo: str = ESTILO_PADRAO):
     """
     Gera um arquivo .mp4 para cada corte identificado, em paralelo.
 
@@ -213,6 +225,7 @@ def cortar_video(caminho_video: str, cortes: list, pasta_saida: str = "clipes",
     caminho_logo: caminho do arquivo de imagem da logo (PNG com fundo
                   transparente funciona melhor). Se o arquivo não existir,
                   a marca d'água é simplesmente pulada sem dar erro.
+    estilo: preset de legenda/manchete (ver ESTILOS em captions.py).
     handle: texto do @ da conta, mostrado semi-transparente no canto inferior
             esquerdo durante todo o clipe. Passe None ou "" para desativar.
     """
@@ -241,7 +254,7 @@ def cortar_video(caminho_video: str, cortes: list, pasta_saida: str = "clipes",
             executor.submit(
                 _cortar_um_clipe, i, len(cortes), c, caminho_video, pasta_saida,
                 pasta_temp, formato_vertical, layout, palavras, legendas, preset, crf,
-                marca_dagua, caminho_logo, handle, info_blur,
+                marca_dagua, caminho_logo, handle, info_blur, estilo,
             )
             for i, c in enumerate(cortes, start=1)
         ]

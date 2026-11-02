@@ -8,20 +8,37 @@ import json
 import re
 from anthropic import Anthropic
 
-MODELO_CLAUDE = "claude-sonnet-4-6"
+# Pode trocar sem mexer no código: defina a variável de ambiente ANTHROPIC_MODEL
+MODELO_CLAUDE = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 
-PROMPT_SISTEMA = """Você é um estrategista de conteúdo especializado em cortes virais para \
-TikTok, Instagram Reels e YouTube Shorts. Você analisa transcrições de vídeos longos \
-(com timestamps) e identifica os melhores trechos para virar cortes curtos e autônomos.
+PROMPT_SISTEMA = """Você é um editor sênior de cortes virais para TikTok, Instagram Reels e \
+YouTube Shorts. Você recebe a transcrição de um vídeo longo (com o minuto:segundo em que cada \
+frase COMEÇA) e escolhe os trechos que mais provavelmente vão ser assistidos até o fim, \
+compartilhados e comentados.
 
-Critérios para um bom corte:
-- Tem um GANCHO forte nos primeiros 2-3 segundos (pergunta intrigante, afirmação polêmica, \
-promessa de resultado, frase de impacto).
-- Funciona sozinho, sem precisar de contexto do resto do vídeo.
-- Contém um pico de valor: humor, revelação, dado surpreendente, história emocional, \
-conselho prático, virada de raciocínio ou controvérsia.
-- Tem começo, meio e fim natural dentro da janela de tempo (não corta no meio de uma ideia).
-- Duração entre 30 segundos e 2 minutos.
+O que faz um corte render:
+- ABERTURA: os primeiros 3 segundos precisam prender. Comece NO INÍCIO de uma frase forte \
+(pergunta, afirmação ousada, promessa, momento de tensão). Nunca comece em "e", "mas", "então", \
+"aí", em saudações, apresentações, introduções ou propaganda.
+- AUTONOMIA: o trecho faz sentido sozinho, sem o resto do vídeo.
+- PICO: tem um momento claro de payoff (humor, revelação, dado surpreendente, reação forte, \
+virada, opinião polêmica, história emocional, conselho prático).
+- FINAL: termina logo após o payoff, em uma frase completa. Não arraste o final com conversa \
+morna; corte onde a emoção está no auge.
+- DURAÇÃO: prefira 30 a 60 segundos (cortes curtos retêm mais). Use até 90 segundos só quando a \
+história realmente precisar. Nunca menos de 25 nem mais de 120.
+- VARIEDADE: escolha trechos de partes diferentes do vídeo e de tipos diferentes de momento.
+- Seja seletivo: é melhor devolver menos cortes bons do que completar a quantidade com trechos \
+fracos.
+
+Para cada corte, escreva também:
+- "manchete": texto curto (3 a 8 palavras) que aparece em letras grandes nos primeiros segundos \
+do vídeo. Deve criar curiosidade ou tensão SEM mentir e SEM entregar o final. Estilo de manchete \
+de portal esportivo/entretenimento. Em português, sem emojis, sem aspas.
+- "pontuacao": nota de 1 a 10 do potencial viral.
+
+Use os timestamps exatamente como aparecem na transcrição (o início de uma frase para "inicio"; \
+o início da ÚLTIMA frase do corte para "fim", e o sistema ajusta o final dela).
 
 Responda APENAS com um JSON válido (sem markdown, sem texto antes ou depois), no formato:
 {
@@ -29,9 +46,11 @@ Responda APENAS com um JSON válido (sem markdown, sem texto antes ou depois), n
     {
       "inicio": "MM:SS",
       "fim": "MM:SS",
-      "titulo": "título curto e chamativo para o corte",
+      "titulo": "título curto para o nome do arquivo",
+      "manchete": "MANCHETE CURTA E CHAMATIVA",
       "motivo": "por que esse trecho tem potencial viral (1-2 frases)",
-      "gancho": "a frase/momento exato que prende a atenção nos primeiros segundos",
+      "gancho": "a frase exata falada nos primeiros segundos",
+      "pontuacao": 8,
       "plataformas_sugeridas": ["tiktok", "instagram", "shorts"]
     }
   ]
@@ -48,7 +67,8 @@ def _mmss_para_segundos(t: str) -> float:
     return h * 3600 + m * 60 + s
 
 
-def analisar_transcricao(transcricao_formatada: str, quantidade_cortes: int = 6) -> list:
+def analisar_transcricao(transcricao_formatada: str, quantidade_cortes: int = 6,
+                          nicho: str = "") -> list:
     """
     Chama a API da Anthropic para identificar os melhores trechos.
     Retorna lista de dicts: inicio_seg, fim_seg, titulo, motivo, gancho, plataformas.
@@ -61,17 +81,18 @@ def analisar_transcricao(transcricao_formatada: str, quantidade_cortes: int = 6)
 
     client = Anthropic(api_key=api_key)
 
+    contexto_nicho = f"Contexto do canal/assunto: {nicho}. Escolha momentos que o público desse nicho mais valoriza.\n\n" if nicho else ""
     prompt_usuario = f"""Aqui está a transcrição do vídeo com timestamps:
 
 {transcricao_formatada}
 
-Identifique os {quantidade_cortes} melhores trechos para cortes virais, seguindo os critérios \
-do sistema. Priorize variedade (não escolha só trechos parecidos) e garanta que cada corte \
-tenha entre 30 segundos e 2 minutos."""
+{contexto_nicho}Identifique até {quantidade_cortes} melhores trechos para cortes virais, seguindo os \
+critérios do sistema. Priorize qualidade e variedade; devolva menos que {quantidade_cortes} se não \
+houver trechos realmente fortes."""
 
     resposta = client.messages.create(
         model=MODELO_CLAUDE,
-        max_tokens=4000,
+        max_tokens=6000,
         system=PROMPT_SISTEMA,
         messages=[{"role": "user", "content": prompt_usuario}],
     )
@@ -87,17 +108,22 @@ tenha entre 30 segundos e 2 minutos."""
         inicio_seg = _mmss_para_segundos(c["inicio"])
         fim_seg = _mmss_para_segundos(c["fim"])
         duracao = fim_seg - inicio_seg
-        if duracao < 25 or duracao > 130:
+        if duracao < 15 or duracao > 140:
             # descarta cortes fora da faixa pedida (com pequena margem)
             continue
         cortes.append({
             "inicio_seg": inicio_seg,
             "fim_seg": fim_seg,
             "titulo": c.get("titulo", "corte"),
+            "manchete": c.get("manchete", "") or c.get("gancho", ""),
+            "pontuacao": c.get("pontuacao", 0),
             "motivo": c.get("motivo", ""),
             "gancho": c.get("gancho", ""),
             "plataformas": c.get("plataformas_sugeridas", ["tiktok", "instagram", "shorts"]),
         })
 
+    cortes.sort(key=lambda c: c["pontuacao"], reverse=True)
+    cortes = cortes[:quantidade_cortes]
+    cortes.sort(key=lambda c: c["inicio_seg"])
     print(f"[OK] {len(cortes)} cortes identificados pela análise estratégica.")
     return cortes
