@@ -12,8 +12,8 @@ O módulo `cutter.py` é responsável por realizar o corte físico dos trechos i
    - **`blur`:** Mantém o vídeo original inteiro e centralizado, preenchendo o fundo com uma versão desfocada (`gblur`) do próprio vídeo. Calcula a posição exata de término do vídeo para alinhar corretamente elementos dinâmicos na base.
 3. **Processamento de Elementos Visuais (`_cortar_um_clipe`):**
    - Sobrepõe a marca d'água (logo) configurada com transparência e margens definidas.
-   - Desenha uma faixa colorida de abertura no rodapé (quando há gancho definido nas legendas) utilizando o comando `drawbox` do FFmpeg.
-   - Gera e aplica legendas dinâmicas baseadas em arquivos `.ass` criados pelo módulo de transcrição.
+   - Desenha uma faixa colorida de abertura no rodapé (quando há manchete/gancho definido nas legendas) utilizando o comando `drawbox` do FFmpeg, com suporte ao parâmetro de estilo.
+   - Gera e aplica legendas dinâmicas baseadas em arquivos `.ass` criados pelo módulo de transcrição, incluindo o diretório de fontes e parâmetros de compatibilidade (`yuv420p`, normalização de áudio `loudnorm` e `+faststart`).
 4. **Execução Paralela (`cortar_video`):**
    - Utiliza um `ThreadPoolExecutor` para executar múltiplos processos do FFmpeg em paralelo (limitado por padrão ao número de núcleos da CPU ou até um teto de 4 processos).
    - Reordena cronologicamente os clipes gerados com base no tempo de início no vídeo original antes de retornar a lista final.
@@ -23,7 +23,7 @@ O módulo `cutter.py` é responsável por realizar o corte físico dos trechos i
 ## Dependências
 - **Bibliotecas Python nativas:** `os`, `subprocess`, `tempfile`, `concurrent.futures`.
 - **Módulos internos:** 
-  - `captions` (funções `gerar_ass_para_corte`, `escapar_caminho_ffmpeg`, constante `RODAPE_DURACAO`)
+  - `captions` (funções `gerar_ass_para_corte`, `escapar_caminho_ffmpeg`, constantes `RODAPE_DURACAO`, `PASTA_FONTES_PADRAO`, `ESTILO_PADRAO`)
   - `utils` (função `slugificar`)
 - **Ferramentas externas:** `ffmpeg` e `ffprobe` instalados e acessíveis no PATH do sistema operacional.
 
@@ -33,7 +33,7 @@ O módulo `cutter.py` é responsável por realizar o corte físico dos trechos i
 - **Marca d'água (`assets/logo.png` / `LARGURA_LOGO_PROPORCAO` / `MARGEM_LOGO` / `OPACIDADE_LOGO`):** Define o caminho padrão da imagem, o tamanho proporcional em relação à largura do vídeo final, espaçamento das bordas e nível de opacidade.
 - **Handle da conta (`HANDLE_PADRAO`):** Define o identificador padrão exibido semi-transparentemente no canto inferior esquerdo dos clipes.
 - **Faixa de rodapé (`ALTURA_FAIXA_RODAPE` / `COR_FAIXA_RODAPE`):** Controla a altura em pixels e a cor em formato hexadecimal do FFmpeg (ex: `"0xFF0000"`) utilizada para destacar o gancho do corte nos primeiros segundos.
-- **Parâmetros de Codificação (`cortar_video`):** Ajustáveis na chamada da função principal, incluindo o preset de velocidade do codificador libx264 (`preset`), fator de qualidade (`crf`), pasta de saída e escolha entre os layouts `preenchido` ou `blur`.
+- **Parâmetros de Codificação (`cortar_video` / `_cortar_um_clipe`):** Ajustáveis na chamada da função principal, incluindo o preset de velocidade do codificador libx264 (`preset`), fator de qualidade (`crf`), pasta de saída, escolha entre os layouts `preenchido` ou `blur`, e o parâmetro de estilo de legenda/manchete (`estilo`).
 
 ---
 
@@ -42,3 +42,4 @@ O módulo `cutter.py` é responsável por realizar o corte físico dos trechos i
 | Data | Autor | Hash do commit | Descrição da alteração |
 | :--- | :--- | :--- | :--- |
 | 29/09/2026 | Gustavo Rockembach | bf33694 | Descomentado as linhas de handle e rodape e alterada a cor da faixa do rodape |
+| Mon Nov 2 20:46:17 2026 -0300 | Gustavo Rockembach | a8e2e9f | Adicionado suporte a estilos e pasta de fontes customizadas nas legendas, troca de 'gancho' por 'manchete', e inclusão de flags de compatibilidade, normalização de áudio e faststart no ffmpeg |
